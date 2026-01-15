@@ -1,0 +1,15 @@
+# Ignore everything by default
+*
+
+# But keep these files
+!app.py
+!requirements.txt
+!.gitignore
+
+# Keep streamlit config directory if it exists
+!.streamlit/
+!.streamlit/**
+
+# Keep README if you add one later
+!README.md
+!README.txt
