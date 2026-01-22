@@ -221,7 +221,7 @@ rating_cap = st.sidebar.slider("Lineup rating cap (placeholder constraint)", 4.0
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**What’s live right now:**")
-st.sidebar.markdown("- Roster moves (Active ↔ Injured)\n- Best lineup button (simple brute force)\n- Home vs Away analytics")
+st.sidebar.markdown("- Roster moves (Active ↔ Injured)\n- Lineup selector + stint stats\n- Home vs Away analytics")
 
 # shared roster state for both sections
 status_map = get_status_map(team)
@@ -282,10 +282,10 @@ with tab_roster:
 
 
 with tab_lineups:
-    st.subheader("Home Games vs Away Games — Best Lineup (placeholder)")
+    st.subheader("Home Games vs Away Games — Lineup Explorer")
     st.caption(
-        "Right now, 'Best Lineup' is a simple brute-force search over all 4-player combos under the rating cap, "
-        "scored by goal differential per minute based on matching stints."
+        "Pick any 4-player lineup to see stint-based performance metrics. "
+        "Home and away are tracked separately."
     )
 
     home_col, away_col = st.columns(2)
@@ -305,58 +305,65 @@ with tab_lineups:
             gcount = stints_df[stints_df["a_team"] == team]["game_id"].nunique()
         top3.metric("Games in data", int(gcount))
 
-        run = st.button(f"🏆 Best lineup ({context_label})", use_container_width=True, key=f"best_{team}_{context_key}")
+        lineup_key = f"lineup_select_{team}_{context_key}"
+        current_lineup = st.session_state.get(lineup_key, [])
+        filtered_lineup = [p for p in current_lineup if p in active]
+        if filtered_lineup != current_lineup:
+            st.session_state[lineup_key] = filtered_lineup
 
-        if run:
-            best = find_best_lineup(
-                team=team,
-                context=context_key,
-                active_players=active,
-                player_df_team=team_players_df,
-                stints=stints_df,
-                rating_cap=rating_cap,
-            )
+        selected_lineup = st.multiselect(
+            "Lineup (pick 4 active players)",
+            active,
+            key=lineup_key,
+            help="Build a lineup manually.",
+        )
 
-            if best is None:
-                st.warning("Not enough active players to form a 4-player lineup (need at least 4).")
-                st.markdown("</div>", unsafe_allow_html=True)
-                return
+        if len(selected_lineup) != 4:
+            st.info("Select 4 players to view lineup stats.")
+            st.markdown("</div>", unsafe_allow_html=True)
+            return
 
-            lineup = best["lineup"]
-            st.markdown("### ✅ Best lineup")
-            lineup_table = (
-                team_players_df[team_players_df["player"].isin(lineup)]
-                .sort_values("rating", ascending=False)
-                .reset_index(drop=True)
-            )
-            st.dataframe(lineup_table, use_container_width=True, hide_index=True)
+        lineup = tuple(selected_lineup)
+        rating_sum = lineup_rating_sum(lineup, team_players_df)
+        stats = lineup_stint_stats(team, context_key, lineup, stints_df)
 
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Rating total", f"{best['rating_sum']:.1f}")
-            m2.metric("Matched stints", int(best["matches"]))
-            m3.metric("Minutes", f"{best['minutes']:.2f}")
-            m4.metric("Goal diff / min", f"{best['goal_diff_per_min']:.3f}")
+        if rating_sum > rating_cap:
+            st.warning(f"Lineup rating total ({rating_sum:.1f}) exceeds the cap ({rating_cap:.1f}).")
 
-            # quick “stint stats” block
-            st.markdown("### 📊 Stint summary for this lineup")
-            s1, s2, s3 = st.columns(3)
-            s1.metric("Goals for", int(best["goals_for"]))
-            s2.metric("Goals against", int(best["goals_against"]))
-            s3.metric("Goal diff", int(best["goal_diff"]))
+        st.markdown("### ✅ Lineup")
+        lineup_table = (
+            team_players_df[team_players_df["player"].isin(lineup)]
+            .sort_values("rating", ascending=False)
+            .reset_index(drop=True)
+        )
+        st.dataframe(lineup_table, use_container_width=True, hide_index=True)
 
-            # simple performance chart (single bar)
-            perf = pd.DataFrame(
-                [{"metric": "Goal diff per min", "value": best["goal_diff_per_min"]}]
-            ).set_index("metric")
-            st.bar_chart(perf)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Rating total", f"{rating_sum:.1f}")
+        m2.metric("Matched stints", int(stats["matches"]))
+        m3.metric("Minutes", f"{stats['minutes']:.2f}")
+        m4.metric("Goal diff / min", f"{stats['goal_diff_per_min']:.3f}")
 
-            # show raw matched stints (useful for debugging)
-            with st.expander("Show matched stints (raw rows)", expanded=False):
-                show_cols = [
-                    "game_id", "h_team", "a_team", "minutes", "h_goals", "a_goals",
-                    "home1", "home2", "home3", "home4", "away1", "away2", "away3", "away4",
-                ]
-                st.dataframe(best["stints_df"][show_cols].reset_index(drop=True), use_container_width=True)
+        # quick “stint stats” block
+        st.markdown("### 📊 Stint summary for this lineup")
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Goals for", int(stats["goals_for"]))
+        s2.metric("Goals against", int(stats["goals_against"]))
+        s3.metric("Goal diff", int(stats["goal_diff"]))
+
+        # simple performance chart (single bar)
+        perf = pd.DataFrame(
+            [{"metric": "Goal diff per min", "value": stats["goal_diff_per_min"]}]
+        ).set_index("metric")
+        st.bar_chart(perf)
+
+        # show raw matched stints (useful for debugging)
+        with st.expander("Show matched stints (raw rows)", expanded=False):
+            show_cols = [
+                "game_id", "h_team", "a_team", "minutes", "h_goals", "a_goals",
+                "home1", "home2", "home3", "home4", "away1", "away2", "away3", "away4",
+            ]
+            st.dataframe(stats["stints_df"][show_cols].reset_index(drop=True), use_container_width=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -367,10 +374,7 @@ with tab_lineups:
 
     st.markdown("---")
     st.markdown("### 📌 Next step (when your colleague’s optimizer is ready)")
-    st.info(
-        "Replace `find_best_lineup()` with your optimization model output. "
-        "Keep the rest of the UI exactly the same."
-    )
+    st.info("Add a ranked recommendations panel here if you want to surface auto-generated lineups.")
 
 
 with tab_explore:
