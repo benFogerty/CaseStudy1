@@ -11,6 +11,14 @@ This repo contains the full workflow: exploratory analysis, model training/tunin
 pip install -r requirements.txt
 ```
 
+## End to End Pipeline
+
+Launch the Streamlit app:
+
+```bash
+streamlit run DecisionSupportSystem/coach_dashboard.py
+```
+
 ## Data
 
 Required files (already in `Data/`):
@@ -158,13 +166,6 @@ Outputs:
 - `Optimizer/CaseStudy_OriginalGames/canada_counterfactual_lost_games.csv`
 - `Optimizer/CaseStudy_OriginalGames/counterfactual_win_flip_plot.png`
 
-## Dashboard
-
-Launch the Streamlit app:
-
-```bash
-streamlit run DecisionSupportSystem/coach_dashboard.py
-```
 
 ## Config Files
 
